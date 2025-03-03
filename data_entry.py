@@ -1,73 +1,83 @@
-import sqlite3
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
 import streamlit as st
+from models import Question, Answer, Base
 
-DB_NAME = st.session_state.get("db_name", "ielts_writing.db")
+# Define the database URL
+DB_URL = "sqlite:///ielts_writing.db"
 
-def add_question_with_answer(question_text: str, task_type: str, answer_text: str, reference_url: str, db_name=DB_NAME):
-    """Insert a question and its answer into the database in one transaction."""
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
+# Create an engine and session factory
+engine = create_engine(DB_URL)
+Base.metadata.create_all(engine)
 
-    # Insert the question
-    cursor.execute("INSERT INTO questions (question_text, task_type) VALUES (?, ?)", (question_text, task_type))
-    question_id = cursor.lastrowid
+def get_session():
+    """Create and return a new SQLAlchemy session."""
+    return Session(bind=engine)
 
-    # Insert the answer linked to the question
-    cursor.execute("INSERT INTO answers (question_id, answer_text, reference_url) VALUES (?, ?, ?)", (question_id, answer_text, reference_url))
+def add_question_with_answer(session: Session, test_type: str, task_type:str, question_text: str, answer_text: str, reference_url: str):
+    """Insert a question and its answer into the database using SQLAlchemy ORM."""
+    question = Question(test_type=test_type, task_type=task_type, question_text=question_text)
+    session.add(question)
+    session.flush()
 
-    conn.commit()
-    conn.close()
+    answer = Answer(question_id=question.id, answer_text=answer_text, reference_url=reference_url)
+    session.add(answer)
 
-def get_all_entries(db_name=DB_NAME):
-    """Retrieve all questions with their corresponding answers."""
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT
-            q.id,
-            q.question_text,
-            q.task_type,
-            a.answer_text,
-            a.reference_url
-        FROM
-            questions q
-        LEFT JOIN
-            answers a
-        ON
-            q.id = a.question_id
-        ORDER BY
-            q.id DESC
-    """)
-    entries = cursor.fetchall()
-    conn.close()
-    return entries
+    session.commit()
+
+def get_all_entries(session: Session):
+    """Retrieve all questions with their corresponding answers using SQLAlchemy ORM."""
+    entries = (
+        session.query(Question.id, Question.test_type, Question.task_type, Question.question_text, Answer.answer_text, Answer.reference_url)
+        .outerjoin(Answer, Question.id == Answer.question_id)
+        .order_by(Question.id.desc())
+        .all()
+    )
+    return [
+        {
+            "id": entry[0],
+            "test_type": entry[1],
+            "task_type": entry[2],
+            "question_text": entry[3],
+            "answer_text": entry[4],
+            "reference_url": entry[5] if entry[5] else None
+        }
+        for entry in entries
+    ]
 
 # Streamlit UI
 st.title("IELTS Writing Data Entry")
 
+# Create a session
+session = get_session()
+
 # Section to add a new question and answer
 st.header("Add a New Question & Answer")
-question_text = st.text_area("Question Text", key="question_text")
+test_type = st.selectbox("Test Type", ["Academic", "General Training"], key="test_type")
 task_type = st.selectbox("Task Type", ["Task 1", "Task 2"], key="task_type")
+question_text = st.text_area("Question Text", key="question_text")
 answer_text = st.text_area("Answer Text", key="answer_text")
 reference_url = st.text_input("Reference URL (optional)", key="reference_url")
 
 if st.button("Add Question & Answer", key="add_q_and_a"):
     if question_text and answer_text:
-        add_question_with_answer(question_text, task_type, answer_text, reference_url)
+        add_question_with_answer(session, test_type, task_type, question_text, answer_text, reference_url)
         st.success("Question and Answer added successfully!")
     else:
         st.warning("Please enter both a question and an answer.")
 
 # Display existing entries
 st.header("Existing Questions & Answers")
-entries = get_all_entries()
+entries = get_all_entries(session)
 if entries:
-    for q_id, q_text, q_task, a_text, ref_url in entries:
-        st.markdown(f"### 📝 {q_text} ({q_task})")
-        st.write(f"**Answer:** {a_text}")
-        if ref_url:
-            st.write(f"[Reference]({ref_url})")
+    for entry in entries:
+        st.markdown(f"### 📝 {entry['question_text']} ({entry['test_type']}, {entry['task_type']})")
+        st.write(f"**Answer:** {entry['answer_text']}")
+        if entry["reference_url"]:
+            st.write(f"[Reference]({entry['reference_url']})")
         st.markdown("---")
 else:
     st.info("No entries available. Please add a question and answer first.")
+
+# Close the session
+session.close()
