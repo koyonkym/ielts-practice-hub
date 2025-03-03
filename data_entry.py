@@ -4,7 +4,7 @@ import streamlit as st
 from models import Question, Answer, Base
 
 # Define the database URL
-DB_URL = "sqlite:///ielts_writing.db"
+DB_URL = st.session_state.get("db_url", "sqlite:///ielts_writing.db")
 
 # Create an engine and session factory
 engine = create_engine(DB_URL)
