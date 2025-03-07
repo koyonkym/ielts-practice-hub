@@ -8,8 +8,8 @@ class Question(Base):
     __tablename__ = "questions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    test_type = Column(String, nullable=False)
     task_type = Column(String, nullable=False)
+    test_type = Column(String, nullable=True)
     question_text = Column(String, nullable=False)
 
     answers = relationship("Answer", back_populates="question", cascade="all, delete-orphan")
